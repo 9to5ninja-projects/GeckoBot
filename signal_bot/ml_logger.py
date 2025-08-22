@@ -1,62 +1,76 @@
-# ml_logger.py
+ml_logger_content = """# ml_logger.py
 import pandas as pd
 import os
 from datetime import datetime
-from .logger import setup_logger, log_info, log_error # Import logger
-
 
 def log_ml_features(indicator_csv, output_csv):
     """Append new features to ML training dataset."""
-    setup_logger() # Ensure logger is setup
-    log_info(f"Attempting to log ML features from {indicator_csv} to {output_csv}...")
-
     try:
-        if not os.path.exists(indicator_csv):
-            log_info(f"Warning: Input file for ML logging not found at {indicator_csv}. Skipping logging.")
-            return pd.DataFrame() # Return empty DataFrame on error
-
         df = pd.read_csv(indicator_csv)
-        log_info(f"Successfully read {indicator_csv} for ML logging. Columns: {df.columns.tolist()}")
 
         required_features = [
             "id", "timestamp", "current_price",
-            "rsi", "ema_20", "macd_diff",
-            "bb_upper", "bb_lower", "signal" # Added signal as a required feature
+            "rsi", "ema_20", "macd", # Use 'macd' as computed in ta_utils
+            "bb_upper", "bb_lower"
         ]
 
-        # Check if all required features are in the DataFrame
+        # Check if all required features are in the DataFrame and are numeric
         missing_features = [col for col in required_features if col not in df.columns]
         if missing_features:
-            log_info(f"Warning: Missing required features for ML logging in {indicator_csv}: {missing_features}. Skipping logging for this file.")
-            return pd.DataFrame() # Return empty DataFrame if features are missing
+            print(f"Warning: Missing required features for ML logging in {indicator_csv}: {missing_features}. Skipping logging for this file.")
+            return pd.DataFrame()
+
+        # Ensure numeric columns are numeric, handle potential errors
+        numeric_cols = ["current_price", "rsi", "ema_20", "macd", "bb_upper", "bb_lower"]
+        for col in numeric_cols:
+             if col in df.columns:
+                  df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        # Drop rows where essential numeric features could not be converted
+        df = df.dropna(subset=[col for col in numeric_cols if col in df.columns])
+
+        if df.empty:
+            print(f"Warning: No valid numeric data remaining for ML logging from {indicator_csv} after cleaning. Skipping logging.")
+            return pd.DataFrame()
+
 
         features = df[required_features].copy()
 
-        # Add a placeholder 'success' column for ML training.
-        # In a real scenario, this would be populated by backtesting or manual labeling.
-        if "signal" in features.columns and "BUY" in features["signal"].str.upper().str:
-             # For simplicity, label any row with a BUY signal as needing potential backtest/labeling
-             # A more sophisticated approach would look at future price movement
-             features["success"] = pd.NA # Mark as needing labeling
-        else:
-             features["success"] = 0 # Assume not a successful trade if no BUY signal
-
         if os.path.exists(output_csv):
             existing = pd.read_csv(output_csv)
-            # Ensure timestamp is datetime for proper merging/deduplication
-            existing["timestamp"] = pd.to_datetime(existing["timestamp"])
-            features["timestamp"] = pd.to_datetime(features["timestamp"])
+            # Ensure timestamp is datetime for correct dropping duplicates
+            existing['timestamp'] = pd.to_datetime(existing['timestamp'])
+            features['timestamp'] = pd.to_datetime(features['timestamp'])
 
-            # Combine existing and new data, drop duplicates based on id and timestamp
-            combined = pd.concat([existing, features]).drop_duplicates(subset=["id", "timestamp"]).reset_index(drop=True)
+            combined = pd.concat([existing, features]).drop_duplicates(subset=["id", "timestamp"]).sort_values(by=["id", "timestamp"])
         else:
             combined = features
 
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_csv) if os.path.dirname(output_csv) else '.', exist_ok=True)
+
         combined.to_csv(output_csv, index=False)
-        log_info(f"ML features logged successfully to {output_csv}. Total entries: {len(combined)}")
         return combined
 
+    except FileNotFoundError:
+        print(f"Error: Input file for ML logging not found at {indicator_csv}. Skipping logging.")
+        return pd.DataFrame()
     except Exception as e:
-        log_error(f"Error during ML feature logging for {indicator_csv}: {e}. Skipping logging.")
-        return pd.DataFrame() # Return empty DataFrame on error
+        print(f"Error during ML feature logging for {indicator_csv}: {e}. Skipping logging.")
+        return pd.DataFrame()
 
+# Example Usage (can be removed or commented out)
+# if __name__ == '__main__':
+#     # Assuming data/top10_with_indicators.csv exists
+#     DATA_DIR = 'signal_bot/data'
+#     indicators_path = os.path.join(DATA_DIR, 'top10_with_indicators.csv')
+#     ml_output_path = os.path.join(DATA_DIR, 'ml_training.csv')
+#     if os.path.exists(indicators_path):
+#         log_ml_features(indicators_path, ml_output_path)
+#     else:
+#          print(f"Input file not found for ML logging: {indicators_path}")
+
+"""
+with open('signal_bot/ml_logger.py', 'w') as f:
+    f.write(ml_logger_content)
+print("signal_bot/ml_logger.py regenerated.")
