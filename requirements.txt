@@ -1,0 +1,6 @@
+pandas
+ta
+scikit-learn
+streamlit
+apscheduler
+requests
